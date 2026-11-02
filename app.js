@@ -543,6 +543,13 @@ function startSpeech(segments, testing = false) {
     toast('Este navegador não oferece leitura de voz.');
     return;
   }
+  // Em iOS recente, habilitar sessão de reprodução ajuda a não silenciar áudio.
+  // Alguns navegadores não implementam audioSession: nesse caso, ignorar.
+  try {
+    if (navigator.audioSession && 'type' in navigator.audioSession) {
+      navigator.audioSession.type = 'playback';
+    }
+  } catch (_) {}
   // Reproduzir imediatamente dentro do clique: iOS bloqueia áudio iniciado depois de awaits.
   stopSpeech();
   state.speechSegments = segments;

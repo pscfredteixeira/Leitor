@@ -7,10 +7,10 @@
   <meta name="description" content="Leitor de PDF e EPUB com biblioteca pessoal, leitura em voz alta e progresso automático.">
   <title>Leitor — Sua biblioteca, no seu ritmo</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
-  <link rel="stylesheet" href="./styles.css?v=2">
+  <link rel="stylesheet" href="./styles.css?v=3">
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
-  <script type="module" src="./app.js?v=2"></script>
+  <script type="module" src="./app.js?v=3"></script>
 </head>
 <body>
   <div class="app" id="app">
@@ -67,9 +67,9 @@
         </div>
       </div>
       <div class="audio-panel">
-        <div class="audio-info"><div class="audio-label"><span class="sound-dot"></span> LEITURA EM VOZ ALTA</div><p id="speech-excerpt">Abra uma página e toque em Reproduzir para ouvir.</p></div>
+        <div class="audio-info"><div class="audio-label"><span class="sound-dot"></span> LEITURA EM VOZ ALTA</div><p id="speech-excerpt">Abra uma página e toque em Reproduzir para ouvir.</p><p id="audio-diagnostic" role="status" aria-live="polite" class="audio-diagnostic">Use Testar som para conferir o alto-falante e Testar voz para conferir o narrador.</p></div>
         <div class="audio-actions">
-          <label class="control-group voice-label"><span>Voz <button class="test-voice" id="test-voice" type="button" title="Ouvir um exemplo da voz selecionada">Testar voz</button></span><select id="voice-select" aria-label="Voz da narração"><option value="">Voz padrão do dispositivo</option></select></label>
+          <label class="control-group voice-label"><span>Voz <button class="test-voice" id="test-voice" type="button" title="Ouvir exemplo de narração">Testar voz</button><button class="test-voice" id="test-sound" type="button" title="Reproduzir um som independente da narração">Testar som</button></span><select id="voice-select" aria-label="Voz da narração"><option value="">Automática · Português</option></select></label>
           <label class="control-group speed-label"><span>Velocidade <output id="speed-output">1,0×</output></span><input id="speed-range" type="range" min="0.7" max="1.5" step="0.1" value="1" aria-label="Velocidade da voz"></label>
           <button class="btn secondary" id="stop-speech" title="Parar narração" aria-label="Parar narração">■</button>
           <button class="btn primary audio-play" id="play-speech">▶ Ouvir</button>

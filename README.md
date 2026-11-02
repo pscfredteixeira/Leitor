@@ -1,45 +1,52 @@
-# Leitor
+# Leitor — PDF, EPUB e narração neural
 
-Leitor é uma biblioteca pessoal gratuita para **PDF e EPUB**, com retomada automática da leitura e narração no navegador. O projeto funciona como um site estático, sem cadastro nem servidor.
+Leitor é uma biblioteca pessoal para ler e acompanhar PDFs e EPUBs no computador e no celular.
 
-## Primeira versão — Sprint 1
+Site: https://pscfredteixeira.github.io/Leitor/
 
-- Importação de PDFs e EPUBs, biblioteca com busca, filtros e capas quando disponíveis.
-- Leitura de PDF com navegação por página e texto extraído para acompanhar a narração.
-- Leitura de EPUB com navegação e retomada pela localização EPUB CFI.
-- Arquivos e progresso de cada livro armazenados no **IndexedDB** do dispositivo.
-- Botão **Continue lendo** para retomar o último livro.
-- Narração com vozes do navegador, seleção de voz, pausa, parada e velocidade.
-- Interface responsiva com tema claro e escuro.
+## Recursos disponíveis
 
-## Publicar no GitHub Pages
+- Importação de PDFs e EPUBs, biblioteca, busca, capas (quando disponíveis) e progresso individual.
+- Retomada automática da página do PDF e posição EPUB por CFI, no mesmo dispositivo.
+- Tema claro/escuro e navegação responsiva.
+- Voz do aparelho (Web Speech API), para casos em que a voz neural não esteja disponível.
+- **Integração com o motor Kokoro PT-BR:** escolha Dora, Alex ou Santa e reproduza áudio neural por trechos (arquivos WAV).
+- Configuração do endereço HTTPS de um backend Kokoro, teste de conexão e player de áudio compatível com iPhone.
+- Chave de acesso opcional; guardada apenas na sessão do navegador.
 
-1. Abra **Settings → Pages** no repositório.
-2. Escolha **Deploy from a branch**.
-3. Selecione **main** e **/(root)** e clique em **Save**.
-4. Aguarde o GitHub concluir a implantação e abra o link que aparecer na tela de Pages.
+## Kokoro: o que é preciso para funcionar
 
-Este aplicativo não exige npm nem etapas de compilação. Para testar localmente, rode um servidor HTTP na pasta do projeto, como Live Server ou o comando python -m http.server 8080, e abra http://localhost:8080.
+**O motor Kokoro não roda no GitHub Pages**. O site e o código da integração foram publicados, mas as vozes neurais só poderão ser ouvidas quando o backend Python estiver executando e seu endereço HTTPS for configurado no app.
 
-## Limitações importantes
+O projeto do servidor está na pasta [backend](./backend), junto com um [guia de instalação e conexão no iPhone](./backend/README.md). É possível testá-lo no Windows com Docker e disponibilizá-lo por um túnel HTTPS, sem contratar hospedagem (mas o PC terá de ficar ligado). Para um endereço fixo, será necessária uma hospedagem adequada para executar o modelo, possivelmente paga.
 
-**Qualidade de voz:** nesta primeira versão a voz vem do Web Speech API, portanto depende das vozes disponíveis no Windows, iPhone e navegador. Voz neural local de alta qualidade, especialmente em português brasileiro, **ainda não foi implementada**; está no planejamento do Sprint 2.
+No leitor, abra um PDF/EPUB, selecione Kokoro · neural, escolha a voz, expanda Configurar servidor Kokoro, insira o endereço HTTPS e a chave (se houver), toque em Conectar e finalmente em Testar voz.
 
-**Sincronização:** no PDF com camada de texto o leitor destaca a **frase** no painel de texto abaixo da página; o EPUB mostra a frase narrada no controle de áudio. O destaque exato da palavra no próprio documento está planejado para o Sprint 3.
+**Por que não usamos apenas kokoro-js?** A versão 1.2.1 do pacote tem arquivos de voz em português brasileiro, mas seu gerador e fonemizador ainda não tratam corretamente o idioma. O backend usa o pipeline oficial Python com o idioma p (pt-BR).
 
-**Armazenamento:** os livros e o ponto de leitura ficam no navegador onde foram adicionados, não na conta do GitHub. Não há sincronização entre computador e iPhone. Limpar os dados do navegador ou remover o site pode apagar sua biblioteca; preserve os arquivos originais.
+## Privacidade e limitações
 
-**PDF digitalizado e DRM:** PDFs só com imagem exigem OCR, que não está implementado. Arquivos com proteção DRM podem não funcionar.
+- Os arquivos completos e o progresso ficam em IndexedDB no aparelho, não no GitHub. Limpar os dados do site pode apagá-los. Preserve os arquivos originais.
+- Quando o Kokoro remoto está ativado, somente o texto de cada trecho narrado (até 400 caracteres por requisição) é enviado ao **servidor configurado**; para documentos sensíveis, use um servidor sob seu controle.
+- Os diferentes dispositivos não sincronizam automaticamente a biblioteca.
+- O Safari pode bloquear a reprodução automática após a geração; nesse caso o player nativo aparece com o botão de reprodução.
+- A geração por trechos pode criar pequenas pausas entre frases. A sincronização exata por palavra ainda não existe.
+- PDFs digitalizados sem texto selecionável precisam de OCR, ainda não implementado.
+- Modelos e scripts podem exigir internet, especialmente na primeira inicialização do backend.
+- A interface e a API foram implementadas, mas ainda não houve verificação de áudio Kokoro real no iPhone nem implantação de um backend público conectado.
 
-**Rede e privacidade:** as dependências PDF.js e epub.js são carregadas por CDN e exigem conexão na primeira abertura. Os livros não são enviados ao servidor deste projeto; algumas vozes disponibilizadas pelo sistema podem usar serviços de nuvem do fabricante.
+## Execução do site
 
-## Próximos passos
+O frontend é estático: HTML, CSS, JavaScript, IndexedDB, PDF.js, epub.js e Web Speech API. É publicado no GitHub Pages pelo branch main, pasta raiz.
 
-- Sprint 2: avaliar e integrar motor neural de voz natural em português, com testes de desempenho em Windows/iPhone.
-- Sprint 3: destacar palavras sincronizadas ao áudio no PDF e no EPUB.
-- Sprint 4: anotações, favoritos, seleção de trechos, sumário e tipografia ajustável.
-- Sprint 5: aplicativo instalável (PWA) e sincronização opcional entre dispositivos.
+Para testar localmente, execute na raiz do repositório: python -m http.server 8080. Acesse http://localhost:8080.
 
-## Tecnologias
+## Próximas melhorias
 
-HTML, CSS, JavaScript, IndexedDB, [PDF.js](https://mozilla.github.io/pdf.js/), [epub.js](https://github.com/futurepress/epub.js/) e Web Speech API.
+- Hospedagem estável do motor neural e medição da qualidade/latência no iPhone.
+- Pré-geração de trechos para reduzir pausas entre frases.
+- Destaque sincronizado por palavra nos livros e arquivos PDF.
+- OCR, anotações, favoritos e sumário.
+- Sincronização opcional da biblioteca entre dispositivos.
+
+Créditos: [Kokoro (Apache 2.0)](https://github.com/hexgrad/kokoro) e bibliotecas de código aberto citadas nos arquivos do projeto.

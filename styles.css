@@ -121,6 +121,8 @@ h2{font-size:18px;font-weight:700;letter-spacing:-.5px}
 .audio-info p{font-size:12px;color:var(--muted);line-height:1.5;margin:9px 0 0;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
 .audio-actions{display:flex;align-items:center;gap:13px}
 .control-group{display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:10px;font-weight:600}
+.test-voice{border:0;background:transparent;color:var(--accent);font-size:10px;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:6px;padding:0 3px}
+.test-voice:hover{color:var(--accent-strong)}
 .control-group select{max-width:178px;font-size:11px;height:36px;border:1px solid var(--line);border-radius:9px;padding:0 8px;background:var(--panel);color:var(--ink)}
 .control-group input{width:99px;accent-color:var(--accent);height:22px}
 .audio-play{min-width:107px}

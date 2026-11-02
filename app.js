@@ -436,6 +436,13 @@ function splitIntoSentences(text) {
   }
   return chunks;
 }
+function reportAudio(message, stateName = '') {
+  const el = $('#audio-diagnostic');
+  if (el) {
+    el.textContent = message;
+    el.dataset.state = stateName;
+  }
+}
 function availableVoices() {
   if (!('speechSynthesis' in window)) return;
   const all = window.speechSynthesis.getVoices();
@@ -450,31 +457,31 @@ function availableVoices() {
   const selection = select.value || localStorage.getItem('leitor-voice') || '';
   select.replaceChildren(new Option('Automática · Português', ''));
   state.voices.forEach((voice) => select.add(new Option(voice.name + ' (' + voice.lang + ')', voice.voiceURI)));
-  if (Array.from(select.options).some((o) => o.value === selection)) select.value = selection;
+  if (Array.from(select.options).some((opt) => opt.value === selection)) select.value = selection;
 }
 function selectedVoice() {
-  availableVoices();
-  const selected = state.voices.find((voice) => voice.voiceURI === $('#voice-select').value);
-  return selected || state.voices.find((voice) => /^pt[-_]BR$/i.test(voice.lang)) ||
-    state.voices.find((voice) => /^pt([-_]|$)/i.test(voice.lang)) || null;
+  // Não reconstruir o seletor dentro do gesto de reprodução: Safari pode perder a ativação.
+  return state.voices.find((voice) => voice.voiceURI === $('#voice-select').value) || null;
 }
 function updateSpeechButtons() {
   $('#play-speech').textContent = state.speaking ? (state.paused ? '▶ Continuar' : 'Ⅱ Pausar') : '▶ Ouvir';
 }
 function showSpokenSegment() {
   const sentence = state.speechSegments[state.speechIndex] || '';
-  if (state.speaking) $('#speech-excerpt').textContent = sentence || 'Aguardando a voz…';
+  if (state.speaking) $('#speech-excerpt').textContent = sentence || 'Iniciando a narração…';
   document.querySelectorAll('#pdf-text [data-sentence]').forEach((el) => {
     const active = Number(el.dataset.sentence) === state.speechIndex && state.speaking && !state.testingVoice;
     el.classList.toggle('active-sentence', active);
     if (active && innerWidth < 700) el.scrollIntoView({block:'nearest',behavior:'smooth'});
   });
 }
-function stopSpeech() {
+function stopSpeech(cancel = true) {
   state.speechGeneration++;
   clearTimeout(state.speechWatchdog);
   state.speechWatchdog = null;
-  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  if (cancel && 'speechSynthesis' in window) {
+    try {window.speechSynthesis.cancel();} catch (_) {}
+  }
   state.utterance = null;
   state.speaking = false;
   state.paused = false;
@@ -487,13 +494,12 @@ function stopSpeech() {
 function speakNext(generation) {
   if (generation !== state.speechGeneration || !state.speaking || state.paused) return;
   if (state.speechIndex >= state.speechSegments.length) {
-    state.speaking = false;
-    state.paused = false;
-    state.utterance = null;
-    state.testingVoice = false;
-    updateSpeechButtons();
-    showSpokenSegment();
+    state.speaking = false; state.paused = false;
+    state.utterance = null; state.testingVoice = false;
+    $('#save-status').textContent = '✓ Salvo';
+    updateSpeechButtons(); showSpokenSegment();
     $('#speech-excerpt').textContent = 'Leitura deste trecho concluída.';
+    reportAudio('A reprodução terminou. Para continuar, toque em Ouvir na próxima página.', 'success');
     return;
   }
   const phrase = state.speechSegments[state.speechIndex];
@@ -504,7 +510,7 @@ function speakNext(generation) {
   if (voice) utterance.voice = voice;
   utterance.rate = Number($('#speed-range').value);
   utterance.volume = 1;
-  state.utterance = utterance; // manter referência viva no Safari
+  state.utterance = utterance;
   let started = false;
   const token = state.speechIndex;
   utterance.onstart = () => {
@@ -512,82 +518,141 @@ function speakNext(generation) {
     started = true;
     clearTimeout(state.speechWatchdog);
     $('#save-status').textContent = '♫ Narrando';
+    reportAudio('O Safari iniciou a voz. Se não ouvir nada, compare com Testar som e confira a saída de áudio.', 'success');
   };
   utterance.onend = () => {
     if (generation !== state.speechGeneration || token !== state.speechIndex) return;
     clearTimeout(state.speechWatchdog);
     state.utterance = null;
-    $('#save-status').textContent = '✓ Salvo';
     state.speechIndex++;
     speakNext(generation);
   };
   utterance.onerror = (event) => {
     if (generation !== state.speechGeneration || ['interrupted','canceled'].includes(event.error)) return;
     clearTimeout(state.speechWatchdog);
-    console.warn('Falha na síntese de voz:', event.error);
+    const code = event.error || 'desconhecido';
+    console.warn('Erro de voz:', code);
     state.speaking = false;
     state.utterance = null;
+    $('#save-status').textContent = 'Falha no áudio';
     updateSpeechButtons();
-    $('#speech-excerpt').textContent = 'A voz do navegador falhou. Escolha outra voz e use Testar voz.';
-    toast('Não foi possível reproduzir esta voz. Use Testar voz para experimentar outra.');
+    reportAudio('Falha na voz (' + code + '). Tente escolher outra voz ou abrir diretamente no Safari.', 'error');
+    toast('A narração não conseguiu iniciar. Veja o diagnóstico sob o título LEITURA EM VOZ ALTA.');
   };
-  window.speechSynthesis.speak(utterance);
+  // O primeiro speak precisa ocorrer no próprio clique: não usar await ou setTimeout aqui.
+  try {
+    window.speechSynthesis.speak(utterance);
+  } catch(error) {
+    state.speaking = false;
+    updateSpeechButtons();
+    reportAudio('Erro ao iniciar o narrador: ' + error.message, 'error');
+    return;
+  }
   clearTimeout(state.speechWatchdog);
   state.speechWatchdog = setTimeout(() => {
     if (generation !== state.speechGeneration || token !== state.speechIndex || started || !state.speaking || state.paused) return;
-    $('#speech-excerpt').textContent = 'A voz não iniciou no Safari. Toque em Parar, escolha outra voz e use Testar voz.';
-    toast('Sem resposta da voz do sistema. Experimente Testar voz, outra voz ou abrir no Safari.');
-  }, 4800);
+    reportAudio('A voz do Safari não respondeu em 6 segundos. Toque em Testar som e depois em Testar voz. Talvez o navegador esteja bloqueando a síntese.', 'error');
+    $('#speech-excerpt').textContent = 'A voz não respondeu. Confira o diagnóstico abaixo.';
+    toast('A voz não iniciou. Use os botões Testar som e Testar voz.');
+  }, 6000);
 }
 function startSpeech(segments, testing = false) {
   if (!('speechSynthesis' in window) || typeof window.SpeechSynthesisUtterance === 'undefined') {
-    toast('Este navegador não oferece leitura de voz.');
+    reportAudio('Seu navegador não disponibiliza a API de narração. Abra no Safari.', 'error');
+    toast('Este navegador não oferece leitura em voz alta.');
     return;
   }
-  // Em iOS recente, habilitar sessão de reprodução ajuda a não silenciar áudio.
-  // Alguns navegadores não implementam audioSession: nesse caso, ignorar.
   try {
-    if (navigator.audioSession && 'type' in navigator.audioSession) {
-      navigator.audioSession.type = 'playback';
-    }
+    if (navigator.audioSession && 'type' in navigator.audioSession) navigator.audioSession.type = 'playback';
   } catch (_) {}
-  // Reproduzir imediatamente dentro do clique: iOS bloqueia áudio iniciado depois de awaits.
-  stopSpeech();
+  // Em iOS, cancelar sempre imediatamente antes de falar pode silenciar a primeira fala.
+  // Só cancelar se realmente houver fala anterior na fila; preservar o gesto do usuário.
+  const synth = window.speechSynthesis;
+  const busy = Boolean(synth.speaking || synth.pending || synth.paused);
+  stopSpeech(busy);
   state.speechSegments = segments;
   state.speechIndex = 0;
   state.speaking = true;
   state.paused = false;
   state.testingVoice = testing;
-  updateSpeechButtons();
+  reportAudio('Solicitando voz ao Safari…', 'pending');
   $('#save-status').textContent = 'Iniciando voz…';
+  updateSpeechButtons();
   speakNext(state.speechGeneration);
 }
 function testVoice() {
-  startSpeech(['Olá! Esta é uma demonstração da voz selecionada no Leitor.'], true);
+  startSpeech(['Olá! Este é o teste de voz do Leitor. Se você está ouvindo esta frase, a narração funciona.'], true);
+}
+function makeTestTone() {
+  // WAV PCM, independente de SpeechSynthesis; dura 0,6 segundo e testa a saída de áudio.
+  const sampleRate = 22050, seconds = .6, samples = Math.floor(sampleRate * seconds);
+  const bytes = new ArrayBuffer(44 + samples * 2);
+  const view = new DataView(bytes);
+  const put = (offset, str) => {for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));};
+  put(0, 'RIFF'); view.setUint32(4, 36 + samples * 2, true);
+  put(8, 'WAVE'); put(12, 'fmt '); view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true); view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  put(36, 'data'); view.setUint32(40, samples * 2, true);
+  for (let i = 0; i < samples; i++) {
+    const t = i / sampleRate;
+    const frequency = t < .3 ? 660 : 880;
+    const envelope = Math.min(1,t * 30, (seconds - t) * 30);
+    view.setInt16(44 + i * 2, Math.round(Math.sin(t * 2 * Math.PI * frequency) * 11000 * Math.max(0,envelope)), true);
+  }
+  return new Blob([bytes], {type:'audio/wav'});
+}
+function testSound() {
+  // Teste independente da voz e do conteúdo do PDF, iniciado diretamente pelo toque.
+  stopSpeech();
+  let audio;
+  const url = URL.createObjectURL(makeTestTone());
+  try {
+    if (navigator.audioSession && 'type' in navigator.audioSession) navigator.audioSession.type = 'playback';
+  } catch (_) {}
+  audio = new Audio();
+  audio.src = url; audio.volume = 1; audio.preload = 'auto';
+  audio.onplaying = () => reportAudio('O navegador está reproduzindo o som de teste. Você ouviu dois bipes? Se não, verifique volume, silencioso e Bluetooth.', 'success');
+  audio.onerror = () => reportAudio('O navegador não conseguiu abrir o som de teste. Abra o Leitor diretamente no Safari.', 'error');
+  audio.onended = () => {URL.revokeObjectURL(url);};
+  reportAudio('Reproduzindo dois bipes de teste…', 'pending');
+  const result = audio.play();
+  if (result && typeof result.catch === 'function') {
+    result.catch((error) => {
+      URL.revokeObjectURL(url);
+      reportAudio('O Safari bloqueou o som de teste: ' + error.message, 'error');
+    });
+  }
+  state.toneAudio = audio;
 }
 function toggleSpeech() {
-  if (!('speechSynthesis' in window)) return toast('Seu navegador não suporta leitura em voz alta.');
+  if (!('speechSynthesis' in window)) {
+    reportAudio('A API de voz não está disponível. Tente abrir no Safari.', 'error');
+    return toast('Seu navegador não oferece leitura em voz alta.');
+  }
   if (state.paused) {
     state.paused = false;
     window.speechSynthesis.resume();
+    reportAudio('A narração foi retomada.', 'success');
     updateSpeechButtons();
     return;
   }
   if (state.speaking) {
     state.paused = true;
     window.speechSynthesis.pause();
+    reportAudio('Narração pausada.', 'pending');
     updateSpeechButtons();
     return;
   }
   if (state.active?.format === 'epub') loadVisibleEpubText();
   const segments = splitIntoSentences(state.currentText);
   if (!segments.length) {
-    if (state.active?.format === 'pdf') {
-      toast('Não há texto selecionável nesta página. Use Testar voz para conferir o áudio; PDF digitalizado precisa de OCR.');
-    } else {
-      toast('Ainda não encontrei texto nesta página. Tente avançar uma página ou use Testar voz.');
-    }
-    return;
+    const message = state.active?.format === 'pdf'
+      ? 'Esta página do PDF não tem texto selecionável. Experimente Testar voz; PDFs digitalizados exigem OCR.'
+      : 'Não foi encontrado texto neste trecho. Avance uma página e tente novamente.';
+    reportAudio(message, 'error');
+    return toast(message);
   }
   startSpeech(segments);
 }
@@ -626,6 +691,7 @@ function setupEvents() {
   $('#reader-theme').addEventListener('click', toggleTheme);
   $('#play-speech').addEventListener('click', toggleSpeech);
   $('#test-voice').addEventListener('click', testVoice);
+  $('#test-sound').addEventListener('click', testSound);
   $('#stop-speech').addEventListener('click', stopSpeech);
   $('#speed-range').addEventListener('input', (event) => {
     $('#speed-output').textContent = Number(event.target.value).toFixed(1).replace('.',',') + '×';

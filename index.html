@@ -7,10 +7,10 @@
   <meta name="description" content="Leitor de PDF e EPUB com biblioteca pessoal, leitura em voz alta e progresso automático.">
   <title>Leitor — Sua biblioteca, no seu ritmo</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
-  <link rel="stylesheet" href="./styles.css?v=5">
+  <link rel="stylesheet" href="./styles.css?v=6">
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
-  <script type="module" src="./app.js?v=5"></script>
+  <script type="module" src="./app.js?v=6"></script>
 </head>
 <body>
   <div class="app" id="app">
@@ -70,7 +70,7 @@
         <div class="audio-info">
           <div class="audio-label"><span class="sound-dot"></span> NARRAÇÃO DO LIVRO</div>
           <p id="speech-excerpt">Abra uma página e toque em Ouvir para começar.</p>
-          <p id="audio-diagnostic" role="status" aria-live="polite" class="audio-diagnostic">Kokoro neural em português. Para usar, conecte um servidor de voz.</p>
+          <p id="audio-diagnostic" role="status" aria-live="polite" class="audio-diagnostic">A voz neural local funciona sem servidor. No primeiro uso, o modelo será baixado.</p>
           <details id="kokoro-config" class="kokoro-config">
             <summary>Configurar servidor Kokoro <span id="kokoro-connection">não conectado</span></summary>
             <div class="kokoro-help">O Kokoro precisa de um servidor próprio, pois esta versão do site roda no GitHub Pages. Nenhum livro completo é enviado: somente o trecho narrado.</div>
@@ -83,8 +83,8 @@
           </details>
         </div>
         <div class="audio-actions">
-          <label class="control-group engine-label"><span>Motor</span><select id="speech-engine" aria-label="Motor de narração"><option value="kokoro">Kokoro · neural</option><option value="system">Voz do aparelho</option></select></label>
-          <label class="control-group voice-label"><span>Voz <button class="test-voice" id="test-voice" type="button">Testar voz</button><button class="test-voice" id="test-sound" type="button">Testar som</button></span><select id="voice-select" aria-label="Voz da narração"><option value="pf_dora">Dora · Brasil</option><option value="pm_alex">Alex · Brasil</option><option value="pm_santa">Santa · Brasil</option></select></label>
+          <label class="control-group engine-label"><span>Motor</span><select id="speech-engine" aria-label="Motor de narração"><option value="local">Neural local · português</option><option value="kokoro">Kokoro · precisa de servidor</option><option value="system">Voz do aparelho</option></select></label>
+          <label class="control-group voice-label"><span>Voz <button class="test-voice" id="test-voice" type="button">Testar voz</button><button class="test-voice" id="test-sound" type="button">Testar som</button></span><select id="voice-select" aria-label="Voz da narração"><option value="faber">Faber · português brasileiro</option></select></label>
           <label class="control-group speed-label"><span>Ritmo <output id="speed-output">1,0×</output></span><input id="speed-range" type="range" min="0.7" max="1.5" step="0.1" value="1" aria-label="Velocidade da voz"></label>
           <button class="btn secondary" id="stop-speech" title="Parar narração" aria-label="Parar narração">■</button>
           <button class="btn primary audio-play" id="play-speech">▶ Ouvir</button>

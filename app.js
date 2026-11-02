@@ -10,7 +10,7 @@ const state = {
   currentText: '', speechSegments: [], speechIndex: 0, utterance: null, speechWatchdog: null,
   speaking: false, paused: false, speechGeneration: 0, voices: [], toastTimer: null,
   objectUrls: [], loadingBook: false,
-  kokoroEndpoint: '', kokoroController: null, kokoroObjectUrl: null, kokoroAudio: null, kokoroGenerating: false
+  kokoroEndpoint: '', kokoroApiKey: '', kokoroController: null, kokoroObjectUrl: null, kokoroAudio: null, kokoroGenerating: false
 };
 const DB_NAME = 'leitor-library-v1';
 const STORE = 'books';
@@ -466,7 +466,9 @@ function updateVoiceOptions() {
 }
 function loadKokoroSettings() {
   state.kokoroEndpoint = localStorage.getItem('leitor-kokoro-endpoint') || '';
+  state.kokoroApiKey = sessionStorage.getItem('leitor-kokoro-key') || '';
   $('#kokoro-url').value = state.kokoroEndpoint;
+  $('#kokoro-key').value = state.kokoroApiKey;
   $('#speech-engine').value = localStorage.getItem('leitor-speech-engine') === 'system' ? 'system' : 'kokoro';
   state.kokoroAudio = $('#kokoro-player');
   updateVoiceOptions();
@@ -497,7 +499,9 @@ async function connectKokoro() {
     const data = await response.json();
     if (data.engine !== 'kokoro' || data.status !== 'ok') throw new Error('Este endereço não é um servidor Kokoro compatível com o Leitor.');
     state.kokoroEndpoint = endpoint;
+    state.kokoroApiKey = $('#kokoro-key').value.trim();
     localStorage.setItem('leitor-kokoro-endpoint', endpoint);
+    sessionStorage.setItem('leitor-kokoro-key', state.kokoroApiKey);
     $('#kokoro-connection').textContent = 'conectado';
     reportAudio('Servidor Kokoro conectado. Escolha Dora, Alex ou Santa e toque em Testar voz.', 'success');
     toast('Kokoro conectado! Agora teste a voz.');
@@ -551,7 +555,7 @@ async function playKokoroSegment(generation) {
     const response = await fetch(state.kokoroEndpoint + '/api/tts', {
       method:'POST',
       mode:'cors',
-      headers:{'Content-Type':'application/json'},
+      headers:{'Content-Type':'application/json', ...(state.kokoroApiKey ? {'X-Leitor-Key':state.kokoroApiKey} : {})},
       body:JSON.stringify({
         text:segment,
         voice:$('#voice-select').value,

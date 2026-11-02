@@ -165,3 +165,34 @@ h2{font-size:18px;font-weight:700;letter-spacing:-.5px}
   .audio-actions .btn{padding:11px 12px}.audio-play{min-width:85px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* Kokoro: configuração, áudio nativo e estados em navegadores móveis */
+.audio-panel{flex-wrap:wrap}
+.audio-info{min-width:min(280px,100%)}
+.audio-actions{flex-wrap:wrap;justify-content:flex-end}
+.kokoro-config{margin-top:10px;font-size:11px;border:1px solid var(--line);border-radius:11px;padding:8px 10px;background:var(--bg);max-width:530px}
+.kokoro-config summary{cursor:pointer;font-weight:700;color:var(--accent);list-style:disclosure-closed}
+.kokoro-config summary span{color:var(--muted);font-weight:500;margin-left:5px}
+.kokoro-config[open] summary{margin-bottom:10px}
+.kokoro-help{color:var(--muted);line-height:1.5;margin-bottom:10px}
+.kokoro-setup{display:flex;gap:8px;align-items:center;margin-bottom:9px}
+.kokoro-setup input{min-width:80px;flex:1;max-width:310px;padding:10px;border:1px solid var(--line);color:var(--ink);background:var(--panel);border-radius:9px;font-size:12px}
+.kokoro-setup .btn{padding:10px 12px}
+.kokoro-config small{display:block;line-height:1.5;color:var(--muted)}
+.kokoro-config a{color:var(--accent)}
+.kokoro-player{width:min(100%,520px);height:39px;flex:0 0 auto;margin-left:auto;border-radius:10px}
+.engine-label select{max-width:155px}
+.audio-info p.audio-diagnostic[data-state="pending"]{color:var(--accent)}
+@media(max-width:700px){
+  .audio-panel{gap:9px}
+  .audio-info{max-width:none}
+  .audio-actions{width:100%;justify-content:space-between;gap:7px}
+  .audio-actions .control-group{min-width:0}
+  .audio-actions .control-group select{max-width:39vw}
+  .audio-actions .engine-label select{max-width:34vw}
+  .audio-actions .speed-label input{width:73px}
+  .kokoro-config{max-width:none}
+  .kokoro-setup{flex-wrap:wrap}
+  .kokoro-setup input{max-width:none}
+  .kokoro-player{width:100%;margin:0}
+}

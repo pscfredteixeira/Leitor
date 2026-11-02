@@ -7,7 +7,7 @@ const state = {
   db: null, books: [], filter: 'all', search: '', active: null,
   pdfDoc: null, pdfTask: null, pdfPage: 1, pdfRenderSerial: 0, pdfText: '',
   epubBook: null, rendition: null, epubRelocationSerial: 0,
-  currentText: '', speechSegments: [], speechIndex: 0,
+  currentText: '', speechSegments: [], speechIndex: 0, utterance: null, speechWatchdog: null,
   speaking: false, paused: false, speechGeneration: 0, voices: [], toastTimer: null,
   objectUrls: [], loadingBook: false
 };
@@ -245,8 +245,14 @@ async function openBook(id) {
     await saveActive();
   } catch (error) {
     console.error('Falha ao abrir livro', error);
-    $('#reader-loading').textContent = 'Não foi possível abrir este arquivo.';
-    toast('Falha ao abrir o livro. Confirme se ele não está corrompido ou protegido.');
+    const explanation = state.active?.format === 'epub'
+      ? (!window.JSZip || typeof window.ePub !== 'function'
+        ? 'O carregador de EPUB não iniciou. Confira a conexão e atualize a página.'
+        : 'Não foi possível interpretar este EPUB. Verifique se o arquivo está completo e sem DRM.')
+      : 'Não foi possível abrir este PDF. Verifique se está completo ou protegido por senha.';
+    $('#reader-loading').textContent = explanation;
+    $('#save-status').textContent = 'Falha ao abrir';
+    toast(explanation);
   } finally { state.loadingBook = false; }
 }
 
@@ -302,6 +308,9 @@ async function renderPDFPage() {
   $('#pdf-text').innerHTML = segments.map((sentence, index) =>
     '<span data-sentence="' + index + '">' + escapeHTML(sentence) + ' </span>').join('');
   $('#pdf-text-block').classList.toggle('hidden', !segments.length);
+  $('#speech-excerpt').textContent = segments.length
+    ? 'Página pronta. Toque em Ouvir para começar.'
+    : 'Este PDF não contém texto selecionável nesta página. Se for digitalizado, precisará de OCR para ser narrado.';
   $('#reader-loading').classList.add('hidden');
   $('#reader-body').scrollTop = 0;
   state.active.pdfPage = state.pdfPage;
@@ -310,16 +319,23 @@ async function renderPDFPage() {
   await saveActive();
 }
 async function openEPUB() {
+  if (typeof window.JSZip !== 'function') throw new Error('JSZip não carregou — conexão ou bloqueio de CDN.');
   if (typeof window.ePub !== 'function') throw new Error('Biblioteca EPUB não foi carregada.');
   $('#reader-loading').textContent = 'Preparando seu EPUB…';
-  state.epubBook = window.ePub(await state.active.file.arrayBuffer());
+  const epubBuffer = await state.active.file.arrayBuffer();
+  if (!epubBuffer.byteLength) throw new Error('Arquivo EPUB está vazio.');
+  state.epubBook = window.ePub(epubBuffer, {replacements:'blobUrl'});
   await state.epubBook.ready;
   const metadata = await state.epubBook.loaded.metadata;
   if (metadata?.title) { state.active.title = metadata.title; $('#reader-title').textContent = metadata.title; }
   if (metadata?.creator) { state.active.author = metadata.creator; $('#reader-author').textContent = metadata.creator; }
   $('#epub-stage').classList.remove('hidden');
+  // A altura explícita evita iframes de 0px em alguns WebKit/iPhones.
+  const bodyHeight = $('#reader-body').getBoundingClientRect().height;
+  const frameHeight = Math.max(390, Math.floor(bodyHeight || 480));
+  $('#epub-stage').style.height = frameHeight + 'px';
   state.rendition = state.epubBook.renderTo('epub-container', {
-    width:'100%', height:'100%', flow:'paginated', spread:'none', manager:'default'
+    width:'100%', height:frameHeight + 'px', flow:'paginated', spread:'none', manager:'default'
   });
   state.rendition.themes.default({
     body:{'font-family':'Georgia,serif !important','line-height':'1.85 !important',
@@ -431,57 +447,115 @@ function availableVoices() {
   state.voices = portuguese.length ? portuguese : all;
   const select = $('#voice-select');
   const selection = select.value || localStorage.getItem('leitor-voice') || '';
-  select.replaceChildren(new Option('Voz padrão do dispositivo', ''));
+  select.replaceChildren(new Option('Automática · Português', ''));
   state.voices.forEach((voice) => select.add(new Option(voice.name + ' (' + voice.lang + ')', voice.voiceURI)));
   if (Array.from(select.options).some((o) => o.value === selection)) select.value = selection;
+}
+function selectedVoice() {
+  availableVoices();
+  const selected = state.voices.find((voice) => voice.voiceURI === $('#voice-select').value);
+  return selected || state.voices.find((voice) => /^pt[-_]BR$/i.test(voice.lang)) ||
+    state.voices.find((voice) => /^pt([-_]|$)/i.test(voice.lang)) || null;
 }
 function updateSpeechButtons() {
   $('#play-speech').textContent = state.speaking ? (state.paused ? '▶ Continuar' : 'Ⅱ Pausar') : '▶ Ouvir';
 }
 function showSpokenSegment() {
   const sentence = state.speechSegments[state.speechIndex] || '';
-  $('#speech-excerpt').textContent = sentence || 'Escolha uma página e toque em Ouvir.';
+  if (state.speaking) $('#speech-excerpt').textContent = sentence || 'Aguardando a voz…';
   document.querySelectorAll('#pdf-text [data-sentence]').forEach((el) => {
-    const active = Number(el.dataset.sentence) === state.speechIndex && state.speaking;
+    const active = Number(el.dataset.sentence) === state.speechIndex && state.speaking && !state.testingVoice;
     el.classList.toggle('active-sentence', active);
     if (active && innerWidth < 700) el.scrollIntoView({block:'nearest',behavior:'smooth'});
   });
 }
 function stopSpeech() {
   state.speechGeneration++;
+  clearTimeout(state.speechWatchdog);
+  state.speechWatchdog = null;
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-  state.speaking = false; state.paused = false;
-  state.speechIndex = 0; state.speechSegments = [];
+  state.utterance = null;
+  state.speaking = false;
+  state.paused = false;
+  state.testingVoice = false;
+  state.speechIndex = 0;
+  state.speechSegments = [];
   showSpokenSegment();
   updateSpeechButtons();
 }
 function speakNext(generation) {
   if (generation !== state.speechGeneration || !state.speaking || state.paused) return;
   if (state.speechIndex >= state.speechSegments.length) {
-    state.speaking = false; state.paused = false;
-    updateSpeechButtons(); showSpokenSegment();
+    state.speaking = false;
+    state.paused = false;
+    state.utterance = null;
+    state.testingVoice = false;
+    updateSpeechButtons();
+    showSpokenSegment();
     $('#speech-excerpt').textContent = 'Leitura deste trecho concluída.';
     return;
   }
+  const phrase = state.speechSegments[state.speechIndex];
   showSpokenSegment();
-  const utterance = new SpeechSynthesisUtterance(state.speechSegments[state.speechIndex]);
-  utterance.lang = 'pt-BR';
+  const utterance = new SpeechSynthesisUtterance(phrase);
+  const voice = selectedVoice();
+  utterance.lang = voice?.lang || 'pt-BR';
+  if (voice) utterance.voice = voice;
   utterance.rate = Number($('#speed-range').value);
-  const selectedVoice = state.voices.find((voice) => voice.voiceURI === $('#voice-select').value);
-  if (selectedVoice) {utterance.voice = selectedVoice; utterance.lang = selectedVoice.lang;}
+  utterance.volume = 1;
+  state.utterance = utterance; // manter referência viva no Safari
+  let started = false;
+  const token = state.speechIndex;
+  utterance.onstart = () => {
+    if (generation !== state.speechGeneration || token !== state.speechIndex) return;
+    started = true;
+    clearTimeout(state.speechWatchdog);
+    $('#save-status').textContent = '♫ Narrando';
+  };
   utterance.onend = () => {
-    if (generation !== state.speechGeneration) return;
+    if (generation !== state.speechGeneration || token !== state.speechIndex) return;
+    clearTimeout(state.speechWatchdog);
+    state.utterance = null;
+    $('#save-status').textContent = '✓ Salvo';
     state.speechIndex++;
     speakNext(generation);
   };
   utterance.onerror = (event) => {
-    if (generation !== state.speechGeneration || event.error === 'interrupted' || event.error === 'canceled') return;
-    console.warn('Erro na síntese de voz', event.error);
+    if (generation !== state.speechGeneration || ['interrupted','canceled'].includes(event.error)) return;
+    clearTimeout(state.speechWatchdog);
+    console.warn('Falha na síntese de voz:', event.error);
     state.speaking = false;
+    state.utterance = null;
     updateSpeechButtons();
-    toast('A voz não conseguiu reproduzir o texto. Experimente outra voz.');
+    $('#speech-excerpt').textContent = 'A voz do navegador falhou. Escolha outra voz e use Testar voz.';
+    toast('Não foi possível reproduzir esta voz. Use Testar voz para experimentar outra.');
   };
   window.speechSynthesis.speak(utterance);
+  clearTimeout(state.speechWatchdog);
+  state.speechWatchdog = setTimeout(() => {
+    if (generation !== state.speechGeneration || token !== state.speechIndex || started || !state.speaking || state.paused) return;
+    $('#speech-excerpt').textContent = 'A voz não iniciou no Safari. Toque em Parar, escolha outra voz e use Testar voz.';
+    toast('Sem resposta da voz do sistema. Experimente Testar voz, outra voz ou abrir no Safari.');
+  }, 4800);
+}
+function startSpeech(segments, testing = false) {
+  if (!('speechSynthesis' in window) || typeof window.SpeechSynthesisUtterance === 'undefined') {
+    toast('Este navegador não oferece leitura de voz.');
+    return;
+  }
+  // Reproduzir imediatamente dentro do clique: iOS bloqueia áudio iniciado depois de awaits.
+  stopSpeech();
+  state.speechSegments = segments;
+  state.speechIndex = 0;
+  state.speaking = true;
+  state.paused = false;
+  state.testingVoice = testing;
+  updateSpeechButtons();
+  $('#save-status').textContent = 'Iniciando voz…';
+  speakNext(state.speechGeneration);
+}
+function testVoice() {
+  startSpeech(['Olá! Esta é uma demonstração da voz selecionada no Leitor.'], true);
 }
 function toggleSpeech() {
   if (!('speechSynthesis' in window)) return toast('Seu navegador não suporta leitura em voz alta.');
@@ -498,14 +572,16 @@ function toggleSpeech() {
     return;
   }
   if (state.active?.format === 'epub') loadVisibleEpubText();
-  state.speechSegments = splitIntoSentences(state.currentText);
-  if (!state.speechSegments.length) return toast('Não encontrei texto selecionável nesta página. PDFs digitalizados precisam de OCR.');
-  state.speechIndex = 0;
-  state.speaking = true; state.paused = false;
-  state.speechGeneration++;
-  window.speechSynthesis.cancel();
-  updateSpeechButtons();
-  speakNext(state.speechGeneration);
+  const segments = splitIntoSentences(state.currentText);
+  if (!segments.length) {
+    if (state.active?.format === 'pdf') {
+      toast('Não há texto selecionável nesta página. Use Testar voz para conferir o áudio; PDF digitalizado precisa de OCR.');
+    } else {
+      toast('Ainda não encontrei texto nesta página. Tente avançar uma página ou use Testar voz.');
+    }
+    return;
+  }
+  startSpeech(segments);
 }
 async function removeBook(id) {
   const book = state.books.find((b) => b.id === id);
@@ -541,6 +617,7 @@ function setupEvents() {
   $('#theme-toggle').addEventListener('click', toggleTheme);
   $('#reader-theme').addEventListener('click', toggleTheme);
   $('#play-speech').addEventListener('click', toggleSpeech);
+  $('#test-voice').addEventListener('click', testVoice);
   $('#stop-speech').addEventListener('click', stopSpeech);
   $('#speed-range').addEventListener('input', (event) => {
     $('#speed-output').textContent = Number(event.target.value).toFixed(1).replace('.',',') + '×';
@@ -558,6 +635,8 @@ function setupEvents() {
   if ('speechSynthesis' in window) {
     availableVoices();
     window.speechSynthesis.onvoiceschanged = availableVoices;
+    setTimeout(availableVoices, 700);
+    setTimeout(availableVoices, 2200);
   }
 }
 async function init() {

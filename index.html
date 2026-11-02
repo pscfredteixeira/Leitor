@@ -7,10 +7,10 @@
   <meta name="description" content="Leitor de PDF e EPUB com biblioteca pessoal, leitura em voz alta e progresso automático.">
   <title>Leitor — Sua biblioteca, no seu ritmo</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
-  <link rel="stylesheet" href="./styles.css?v=3">
+  <link rel="stylesheet" href="./styles.css?v=4">
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
-  <script type="module" src="./app.js?v=3"></script>
+  <script type="module" src="./app.js?v=4"></script>
 </head>
 <body>
   <div class="app" id="app">
@@ -67,13 +67,28 @@
         </div>
       </div>
       <div class="audio-panel">
-        <div class="audio-info"><div class="audio-label"><span class="sound-dot"></span> LEITURA EM VOZ ALTA</div><p id="speech-excerpt">Abra uma página e toque em Reproduzir para ouvir.</p><p id="audio-diagnostic" role="status" aria-live="polite" class="audio-diagnostic">Use Testar som para conferir o alto-falante e Testar voz para conferir o narrador.</p></div>
+        <div class="audio-info">
+          <div class="audio-label"><span class="sound-dot"></span> NARRAÇÃO DO LIVRO</div>
+          <p id="speech-excerpt">Abra uma página e toque em Ouvir para começar.</p>
+          <p id="audio-diagnostic" role="status" aria-live="polite" class="audio-diagnostic">Kokoro neural em português. Para usar, conecte um servidor de voz.</p>
+          <details id="kokoro-config" class="kokoro-config">
+            <summary>Configurar servidor Kokoro <span id="kokoro-connection">não conectado</span></summary>
+            <div class="kokoro-help">O Kokoro precisa de um servidor próprio, pois esta versão do site roda no GitHub Pages. Nenhum livro completo é enviado: somente o trecho narrado.</div>
+            <div class="kokoro-setup">
+              <input id="kokoro-url" type="url" inputmode="url" autocomplete="url" placeholder="https://seu-servidor.exemplo.com" aria-label="Endereço HTTPS do servidor Kokoro">
+              <button class="btn secondary" type="button" id="kokoro-connect">Conectar</button>
+            </div>
+            <small>O projeto do servidor e as instruções de instalação estão no <a href="https://github.com/pscfredteixeira/Leitor/tree/main/backend" target="_blank" rel="noopener noreferrer">GitHub</a>.</small>
+          </details>
+        </div>
         <div class="audio-actions">
-          <label class="control-group voice-label"><span>Voz <button class="test-voice" id="test-voice" type="button" title="Ouvir exemplo de narração">Testar voz</button><button class="test-voice" id="test-sound" type="button" title="Reproduzir um som independente da narração">Testar som</button></span><select id="voice-select" aria-label="Voz da narração"><option value="">Automática · Português</option></select></label>
-          <label class="control-group speed-label"><span>Velocidade <output id="speed-output">1,0×</output></span><input id="speed-range" type="range" min="0.7" max="1.5" step="0.1" value="1" aria-label="Velocidade da voz"></label>
+          <label class="control-group engine-label"><span>Motor</span><select id="speech-engine" aria-label="Motor de narração"><option value="kokoro">Kokoro · neural</option><option value="system">Voz do aparelho</option></select></label>
+          <label class="control-group voice-label"><span>Voz <button class="test-voice" id="test-voice" type="button">Testar voz</button><button class="test-voice" id="test-sound" type="button">Testar som</button></span><select id="voice-select" aria-label="Voz da narração"><option value="pf_dora">Dora · Brasil</option><option value="pm_alex">Alex · Brasil</option><option value="pm_santa">Santa · Brasil</option></select></label>
+          <label class="control-group speed-label"><span>Ritmo <output id="speed-output">1,0×</output></span><input id="speed-range" type="range" min="0.7" max="1.5" step="0.1" value="1" aria-label="Velocidade da voz"></label>
           <button class="btn secondary" id="stop-speech" title="Parar narração" aria-label="Parar narração">■</button>
           <button class="btn primary audio-play" id="play-speech">▶ Ouvir</button>
         </div>
+        <audio id="kokoro-player" controls playsinline preload="none" class="kokoro-player hidden" aria-label="Áudio neural do Kokoro"></audio>
       </div>
     </main>
     <input class="sr-only" id="file-input" type="file" accept=".pdf,.epub,application/pdf,application/epub+zip" multiple>

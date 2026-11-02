@@ -10,7 +10,7 @@ const state = {
   currentText: '', speechSegments: [], speechIndex: 0, utterance: null, speechWatchdog: null,
   speaking: false, paused: false, speechGeneration: 0, voices: [], toastTimer: null,
   objectUrls: [], loadingBook: false,
-  kokoroEndpoint: '', kokoroApiKey: '', kokoroController: null, kokoroObjectUrl: null, kokoroAudio: null, kokoroGenerating: false
+  kokoroEndpoint: '', kokoroApiKey: '', kokoroController: null, kokoroObjectUrl: null, kokoroAudio: null, kokoroGenerating: false, localPiper: null, localModelPromise: null, localGenerating: false
 };
 const DB_NAME = 'leitor-library-v1';
 const STORE = 'books';
@@ -445,6 +445,7 @@ const KOKORO_VOICES = [
   {id:'pm_santa',label:'Santa · masculina (Brasil)'}
 ];
 function isKokoro() { return $('#speech-engine').value === 'kokoro'; }
+function isLocal() { return $('#speech-engine').value === 'local'; }
 function updateVoiceOptions() {
   const dropdown = $('#voice-select');
   if (!dropdown) return;
@@ -452,24 +453,33 @@ function updateVoiceOptions() {
     dropdown.replaceChildren(...KOKORO_VOICES.map((v) => new Option(v.label, v.id)));
     const chosen = localStorage.getItem('leitor-kokoro-voice') || 'pf_dora';
     dropdown.value = KOKORO_VOICES.some((v) => v.id === chosen) ? chosen : 'pf_dora';
+  } else if (isLocal()) {
+    dropdown.replaceChildren(new Option('Faber · voz brasileira', 'faber'));
   } else {
     availableVoices();
   }
   $('#kokoro-config').classList.toggle('hidden', !isKokoro());
   $('#kokoro-connection').textContent = state.kokoroEndpoint ? 'endereço salvo' : 'não conectado';
-  reportAudio(isKokoro()
-    ? (state.kokoroEndpoint
-      ? 'Kokoro selecionado. Toque em Testar voz; a primeira geração pode demorar.'
-      : 'Kokoro selecionado, mas o motor ainda não está hospedado. Abra Configurar servidor Kokoro.')
-    : 'Voz padrão do dispositivo selecionada. A qualidade varia conforme o iPhone.',
-    state.kokoroEndpoint || !isKokoro() ? '' : 'pending');
+  if (isLocal()) {
+    reportAudio('Voz neural local selecionada. No primeiro uso serão baixados cerca de 30 MB de modelo e recursos. Nenhum texto é enviado para um servidor.', 'pending');
+  } else if (isKokoro()) {
+    reportAudio(state.kokoroEndpoint
+      ? 'Kokoro configurado. Toque em Testar voz.'
+      : 'Kokoro precisa de um servidor. Use a opção Neural local se quiser ouvir sem configurar nada.',
+      state.kokoroEndpoint ? '' : 'error');
+  } else {
+    reportAudio('Voz do dispositivo: a qualidade varia conforme o iPhone e o navegador.');
+  }
 }
 function loadKokoroSettings() {
   state.kokoroEndpoint = localStorage.getItem('leitor-kokoro-endpoint') || '';
   state.kokoroApiKey = sessionStorage.getItem('leitor-kokoro-key') || '';
   $('#kokoro-url').value = state.kokoroEndpoint;
   $('#kokoro-key').value = state.kokoroApiKey;
-  $('#speech-engine').value = localStorage.getItem('leitor-speech-engine') === 'system' ? 'system' : 'kokoro';
+  const wantedEngine = localStorage.getItem('leitor-speech-engine');
+  // Nunca selecionar automaticamente o Kokoro quando não existe backend conectado.
+  $('#speech-engine').value = wantedEngine === 'system' ? 'system' :
+    wantedEngine === 'kokoro' && state.kokoroEndpoint ? 'kokoro' : 'local';
   state.kokoroAudio = $('#kokoro-player');
   updateVoiceOptions();
 }
@@ -532,6 +542,7 @@ function stopKokoro() {
     state.kokoroObjectUrl = null;
   }
   state.kokoroGenerating = false;
+  state.localGenerating = false;
 }
 async function playKokoroSegment(generation) {
   if (generation !== state.speechGeneration || !state.speaking || !state.active && !state.testingVoice) return;
@@ -633,6 +644,105 @@ function startKokoro(segments, testing = false) {
   playKokoroSegment(state.speechGeneration);
 }
 
+/* Motor alternativo sem servidor, usando o modelo Piper brasileiro no navegador.
+   Diferente do Kokoro remoto, a voz local não precisa de API nem servidor Python. */
+const LOCAL_PIPER_MODULE = 'https://esm.sh/@pedrobef/vozz@0.2.7/piper?bundle';
+async function loadLocalPiper() {
+  if (state.localPiper) return state.localPiper;
+  if (!state.localModelPromise) {
+    state.localModelPromise = (async () => {
+      reportAudio('Carregando o motor de voz brasileiro. O primeiro acesso baixa o modelo e pode demorar.', 'pending');
+      const mod = await import(LOCAL_PIPER_MODULE);
+      if (!mod.Piper || typeof mod.Piper.carregar !== 'function') {
+        throw new Error('A biblioteca de voz não carregou corretamente.');
+      }
+      const tts = await mod.Piper.carregar({
+        dispositivo: 'wasm', threads: 1, cache: true,
+        aoProgredir: (progress) => {
+          if (!isLocal() || !state.localGenerating) return;
+          const amount = typeof progress.progresso === 'number' ? Math.round(progress.progresso * 100) + '%' : '';
+          reportAudio('Preparando voz neural brasileira ' + amount + (progress.arquivo ? ' · ' + progress.arquivo : ''), 'pending');
+        }
+      });
+      state.localPiper = tts;
+      return tts;
+    })().catch(error => {
+      state.localModelPromise = null;
+      throw error;
+    });
+  }
+  return state.localModelPromise;
+}
+async function playLocalSegment(generation) {
+  if (generation !== state.speechGeneration || !state.speaking) return;
+  if (state.speechIndex >= state.speechSegments.length) {
+    state.speaking = false;
+    state.localGenerating = false;
+    $('#save-status').textContent = '✓ Salvo';
+    reportAudio('O trecho terminou. Avance a página para continuar.', 'success');
+    updateSpeechButtons();
+    return;
+  }
+  state.localGenerating = true;
+  showSpokenSegment();
+  $('#save-status').textContent = 'Gerando voz local…';
+  updateSpeechButtons();
+  try {
+    const engine = await loadLocalPiper();
+    if (generation !== state.speechGeneration) return;
+    reportAudio('Gerando frase ' + (state.speechIndex + 1) + ' de ' + state.speechSegments.length + ' com voz neural local…', 'pending');
+    const result = await engine.falar(state.speechSegments[state.speechIndex].slice(0,350), {
+      velocidade: Number($('#speed-range').value), maxFonemas:200
+    });
+    if (generation !== state.speechGeneration) return;
+    const blob = result.paraBlob();
+    if (!blob || !blob.size) throw new Error('A voz local retornou um arquivo de áudio vazio.');
+    if (state.kokoroObjectUrl) URL.revokeObjectURL(state.kokoroObjectUrl);
+    state.kokoroObjectUrl = URL.createObjectURL(blob);
+    const player = state.kokoroAudio;
+    player.src = state.kokoroObjectUrl;
+    player.classList.remove('hidden');
+    state.localGenerating = false;
+    player.onplaying = () => {
+      if (generation !== state.speechGeneration) return;
+      $('#save-status').textContent = '♫ Voz local';
+      reportAudio('Reproduzindo voz neural brasileira no dispositivo.', 'success');
+    };
+    player.onended = () => {
+      if (generation !== state.speechGeneration) return;
+      state.speechIndex++;
+      playLocalSegment(generation);
+    };
+    player.onerror = () => {
+      if (generation !== state.speechGeneration) return;
+      reportAudio('Não foi possível tocar o WAV. Tente o botão ▶ do player abaixo.', 'error');
+    };
+    try {
+      await player.play();
+    } catch (_) {
+      reportAudio('Áudio pronto. Toque em ▶ no player abaixo para ouvir no Safari.', 'pending');
+    }
+  } catch (error) {
+    if (generation !== state.speechGeneration) return;
+    state.speaking = false;
+    state.localGenerating = false;
+    $('#save-status').textContent = 'Falha na voz local';
+    reportAudio('Falha na voz local: ' + error.message + '. Verifique a conexão, a memória ou tente outra vez.', 'error');
+    updateSpeechButtons();
+    toast('Não consegui carregar a voz neural neste navegador. Veja o diagnóstico abaixo.');
+  }
+}
+function startLocalSpeech(segments, testing = false) {
+  stopSpeech();
+  state.speechSegments = segments;
+  state.speechIndex = 0;
+  state.speaking = true;
+  state.testingVoice = testing;
+  state.paused = false;
+  updateSpeechButtons();
+  playLocalSegment(state.speechGeneration);
+}
+
 function reportAudio(message, stateName = '') {
   const el = $('#audio-diagnostic');
   if (el) {
@@ -641,7 +751,7 @@ function reportAudio(message, stateName = '') {
   }
 }
 function availableVoices() {
-  if (isKokoro() || !('speechSynthesis' in window)) return;
+  if (isKokoro() || isLocal() || !('speechSynthesis' in window)) return;
   const all = window.speechSynthesis.getVoices();
   const portuguese = all.filter((voice) => /^pt([-_]|$)/i.test(voice.lang));
   portuguese.sort((a,b) => {
@@ -755,6 +865,7 @@ function speakNext(generation) {
   }, 6000);
 }
 function startSpeech(segments, testing = false) {
+  if (isLocal()) return startLocalSpeech(segments, testing);
   if (isKokoro()) return startKokoro(segments, testing);
   if (!('speechSynthesis' in window) || typeof window.SpeechSynthesisUtterance === 'undefined') {
     reportAudio('Seu navegador não disponibiliza a API de narração. Abra no Safari.', 'error');
@@ -826,9 +937,9 @@ function testSound() {
   state.toneAudio = audio;
 }
 function toggleSpeech() {
-  if (isKokoro()) {
-    if (state.kokoroGenerating) {
-      reportAudio('O Kokoro está gerando a narração. Se quiser cancelar, toque em Parar.', 'pending');
+  if (isLocal() || isKokoro()) {
+    if (state.kokoroGenerating || state.localGenerating) {
+      reportAudio('A voz está sendo preparada. Para cancelar, toque em Parar.', 'pending');
       return;
     }
     if (state.speaking && state.paused) {
@@ -853,7 +964,7 @@ function toggleSpeech() {
         : 'Não foi encontrado texto nesta página. Tente avançar para a próxima.';
       reportAudio(msg, 'error'); toast(msg); return;
     }
-    return startKokoro(segments);
+    return isLocal() ? startLocalSpeech(segments) : startKokoro(segments);
   }
   if (!('speechSynthesis' in window)) {
     reportAudio('O navegador não oferece voz do sistema.', 'error');

@@ -250,7 +250,8 @@ async function openBook(id) {
         ? 'O carregador de EPUB não iniciou. Confira a conexão e atualize a página.'
         : 'Não foi possível interpretar este EPUB. Verifique se o arquivo está completo e sem DRM.')
       : 'Não foi possível abrir este PDF. Verifique se está completo ou protegido por senha.';
-    $('#reader-loading').textContent = explanation;
+    const technical = String(error?.message || '').trim().slice(0, 160);
+    $('#reader-loading').textContent = explanation + (technical ? ' Detalhes: ' + technical : '');
     $('#save-status').textContent = 'Falha ao abrir';
     toast(explanation);
   } finally { state.loadingBook = false; }

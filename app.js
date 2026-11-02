@@ -637,7 +637,7 @@ function reportAudio(message, stateName = '') {
   }
 }
 function availableVoices() {
-  if (!('speechSynthesis' in window)) return;
+  if (isKokoro() || !('speechSynthesis' in window)) return;
   const all = window.speechSynthesis.getVoices();
   const portuguese = all.filter((voice) => /^pt([-_]|$)/i.test(voice.lang));
   portuguese.sort((a,b) => {
@@ -670,6 +670,7 @@ function showSpokenSegment() {
 }
 function stopSpeech(cancel = true) {
   state.speechGeneration++;
+  stopKokoro();
   clearTimeout(state.speechWatchdog);
   state.speechWatchdog = null;
   if (cancel && 'speechSynthesis' in window) {
@@ -750,6 +751,7 @@ function speakNext(generation) {
   }, 6000);
 }
 function startSpeech(segments, testing = false) {
+  if (isKokoro()) return startKokoro(segments, testing);
   if (!('speechSynthesis' in window) || typeof window.SpeechSynthesisUtterance === 'undefined') {
     reportAudio('Seu navegador não disponibiliza a API de narração. Abra no Safari.', 'error');
     toast('Este navegador não oferece leitura em voz alta.');
@@ -820,14 +822,43 @@ function testSound() {
   state.toneAudio = audio;
 }
 function toggleSpeech() {
+  if (isKokoro()) {
+    if (state.kokoroGenerating) {
+      reportAudio('O Kokoro está gerando a narração. Se quiser cancelar, toque em Parar.', 'pending');
+      return;
+    }
+    if (state.speaking && state.paused) {
+      state.paused = false;
+      const resume = state.kokoroAudio?.play();
+      if (resume?.catch) resume.catch(() => reportAudio('Toque em ▶ no player nativo para continuar a narração.', 'pending'));
+      updateSpeechButtons();
+      return;
+    }
+    if (state.speaking) {
+      state.paused = true;
+      state.kokoroAudio?.pause();
+      reportAudio('Narração neural pausada.', 'pending');
+      updateSpeechButtons();
+      return;
+    }
+    if (state.active?.format === 'epub') loadVisibleEpubText();
+    const segments = splitIntoSentences(state.currentText);
+    if (!segments.length) {
+      const msg = state.active?.format === 'pdf'
+        ? 'Este PDF não tem texto selecionável nesta página. PDFs digitalizados precisam de OCR.'
+        : 'Não foi encontrado texto nesta página. Tente avançar para a próxima.';
+      reportAudio(msg, 'error'); toast(msg); return;
+    }
+    return startKokoro(segments);
+  }
   if (!('speechSynthesis' in window)) {
-    reportAudio('A API de voz não está disponível. Tente abrir no Safari.', 'error');
-    return toast('Seu navegador não oferece leitura em voz alta.');
+    reportAudio('O navegador não oferece voz do sistema.', 'error');
+    return toast('Voz do sistema indisponível neste navegador.');
   }
   if (state.paused) {
     state.paused = false;
     window.speechSynthesis.resume();
-    reportAudio('A narração foi retomada.', 'success');
+    reportAudio('Narração retomada.', 'success');
     updateSpeechButtons();
     return;
   }
@@ -842,8 +873,8 @@ function toggleSpeech() {
   const segments = splitIntoSentences(state.currentText);
   if (!segments.length) {
     const message = state.active?.format === 'pdf'
-      ? 'Esta página do PDF não tem texto selecionável. Experimente Testar voz; PDFs digitalizados exigem OCR.'
-      : 'Não foi encontrado texto neste trecho. Avance uma página e tente novamente.';
+      ? 'Esta página do PDF não tem texto selecionável. PDFs digitalizados precisam de OCR.'
+      : 'Não foi encontrado texto nesta página.';
     reportAudio(message, 'error');
     return toast(message);
   }
@@ -885,12 +916,16 @@ function setupEvents() {
   $('#play-speech').addEventListener('click', toggleSpeech);
   $('#test-voice').addEventListener('click', testVoice);
   $('#test-sound').addEventListener('click', testSound);
-  $('#stop-speech').addEventListener('click', stopSpeech);
+  $('#stop-speech').addEventListener('click', () => stopSpeech());
+  $('#speech-engine').addEventListener('change', (event) => {
+    stopSpeech(); localStorage.setItem('leitor-speech-engine', event.target.value);updateVoiceOptions();
+  });
+  $('#kokoro-connect').addEventListener('click', connectKokoro);
   $('#speed-range').addEventListener('input', (event) => {
     $('#speed-output').textContent = Number(event.target.value).toFixed(1).replace('.',',') + '×';
   });
   $('#voice-select').addEventListener('change', (event) => {
-    localStorage.setItem('leitor-voice', event.target.value);
+    localStorage.setItem(isKokoro() ? 'leitor-kokoro-voice' : 'leitor-voice', event.target.value);
     if (state.speaking) { stopSpeech(); toast('Voz alterada. Toque em Ouvir para recomeçar.'); }
   });
   document.addEventListener('keydown', (event) => {
@@ -908,6 +943,7 @@ function setupEvents() {
 }
 async function init() {
   setupEvents();
+  loadKokoroSettings();
   try {
     applyTheme(localStorage.getItem('leitor-theme') === 'dark' ? 'dark' : 'light');
     state.db = await openDB();

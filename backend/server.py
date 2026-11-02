@@ -5,6 +5,7 @@ Recebe apenas trechos de texto, não os PDFs/EPUBs originais.
 from __future__ import annotations
 
 import io
+import hmac
 import logging
 import os
 import threading
@@ -12,7 +13,7 @@ import wave
 from functools import lru_cache
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -29,7 +30,7 @@ app.add_middleware(
     allow_origins=[x.strip() for x in origins.split(",") if x.strip()],
     allow_credentials=False,
     allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-Leitor-Key"],
 )
 
 VOICES = {
@@ -93,7 +94,10 @@ def health():
 
 
 @app.post("/api/tts")
-async def create_speech(payload: SpeechRequest):
+async def create_speech(payload: SpeechRequest, x_leitor_key: str | None = Header(default=None)):
+    expected_key = os.getenv("LEITOR_API_KEY", "").strip()
+    if expected_key and not hmac.compare_digest(x_leitor_key or "", expected_key):
+        raise HTTPException(status_code=401, detail="Chave de acesso ao Kokoro inválida.")
     if payload.voice not in VOICES:
         raise HTTPException(422, "Voz desconhecida. Use pf_dora, pm_alex ou pm_santa.")
     if not payload.text.strip():

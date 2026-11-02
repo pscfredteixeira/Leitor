@@ -119,9 +119,14 @@ h2{font-size:18px;font-weight:700;letter-spacing:-.5px}
 .audio-label{font-size:9px;display:flex;align-items:center;gap:7px}
 .sound-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent)}
 .audio-info p{font-size:12px;color:var(--muted);line-height:1.5;margin:9px 0 0;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+.audio-info p.audio-diagnostic{white-space:normal;overflow:visible;text-overflow:clip;margin-top:7px;font-size:11px;line-height:1.4;max-width:520px}
+.audio-diagnostic[data-state="error"]{color:#ba4a51}
+.audio-diagnostic[data-state="success"]{color:var(--accent)}
+.voice-label>span{display:flex;flex-wrap:wrap;align-items:center;gap:2px;line-height:1.6}
+
 .audio-actions{display:flex;align-items:center;gap:13px}
 .control-group{display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:10px;font-weight:600}
-.test-voice{border:0;background:transparent;color:var(--accent);font-size:10px;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:6px;padding:0 3px}
+.test-voice{border:0;background:transparent;color:var(--accent);font-size:10px;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:3px;padding:0 3px}
 .test-voice:hover{color:var(--accent-strong)}
 .control-group select{max-width:178px;font-size:11px;height:36px;border:1px solid var(--line);border-radius:9px;padding:0 8px;background:var(--panel);color:var(--ink)}
 .control-group input{width:99px;accent-color:var(--accent);height:22px}
@@ -153,6 +158,9 @@ h2{font-size:18px;font-weight:700;letter-spacing:-.5px}
   .audio-panel{position:sticky;flex-direction:column;gap:10px;align-items:stretch;padding:12px 15px calc(12px + env(safe-area-inset-bottom))}
   .audio-info p{margin-top:4px}
   .audio-actions{justify-content:space-between;gap:9px}
+  .voice-label>span{max-width:170px}
+  .audio-info p.audio-diagnostic{font-size:10.5px;line-height:1.45}
+
   .control-group select{max-width:35vw}.control-group input{width:72px}
   .audio-actions .btn{padding:11px 12px}.audio-play{min-width:85px}
 }

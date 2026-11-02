@@ -9,7 +9,8 @@ const state = {
   epubBook: null, rendition: null, epubRelocationSerial: 0,
   currentText: '', speechSegments: [], speechIndex: 0, utterance: null, speechWatchdog: null,
   speaking: false, paused: false, speechGeneration: 0, voices: [], toastTimer: null,
-  objectUrls: [], loadingBook: false
+  objectUrls: [], loadingBook: false,
+  kokoroEndpoint: '', kokoroController: null, kokoroObjectUrl: null, kokoroAudio: null, kokoroGenerating: false
 };
 const DB_NAME = 'leitor-library-v1';
 const STORE = 'books';
@@ -436,6 +437,198 @@ function splitIntoSentences(text) {
   }
   return chunks;
 }
+/* Kokoro é gerado em um backend Python separado, necessário para o fonemizador pt-BR.
+   Não enviar livros inteiros: apenas a frase atual (até 400 caracteres). */
+const KOKORO_VOICES = [
+  {id:'pf_dora',label:'Dora · feminina (Brasil)'},
+  {id:'pm_alex',label:'Alex · masculina (Brasil)'},
+  {id:'pm_santa',label:'Santa · masculina (Brasil)'}
+];
+function isKokoro() { return $('#speech-engine').value === 'kokoro'; }
+function updateVoiceOptions() {
+  const dropdown = $('#voice-select');
+  if (!dropdown) return;
+  if (isKokoro()) {
+    dropdown.replaceChildren(...KOKORO_VOICES.map((v) => new Option(v.label, v.id)));
+    const chosen = localStorage.getItem('leitor-kokoro-voice') || 'pf_dora';
+    dropdown.value = KOKORO_VOICES.some((v) => v.id === chosen) ? chosen : 'pf_dora';
+  } else {
+    availableVoices();
+  }
+  $('#kokoro-config').classList.toggle('hidden', !isKokoro());
+  $('#kokoro-connection').textContent = state.kokoroEndpoint ? 'endereço salvo' : 'não conectado';
+  reportAudio(isKokoro()
+    ? (state.kokoroEndpoint
+      ? 'Kokoro selecionado. Toque em Testar voz; a primeira geração pode demorar.'
+      : 'Kokoro selecionado, mas o motor ainda não está hospedado. Abra Configurar servidor Kokoro.')
+    : 'Voz padrão do dispositivo selecionada. A qualidade varia conforme o iPhone.',
+    state.kokoroEndpoint || !isKokoro() ? '' : 'pending');
+}
+function loadKokoroSettings() {
+  state.kokoroEndpoint = localStorage.getItem('leitor-kokoro-endpoint') || '';
+  $('#kokoro-url').value = state.kokoroEndpoint;
+  $('#speech-engine').value = localStorage.getItem('leitor-speech-engine') === 'system' ? 'system' : 'kokoro';
+  state.kokoroAudio = $('#kokoro-player');
+  updateVoiceOptions();
+}
+function normalizeKokoroURL(value) {
+  const text = String(value || '').trim().replace(/\/+$/, '');
+  if (!text) throw new Error('Informe o endereço HTTPS do servidor Kokoro.');
+  let url;
+  try { url = new URL(text); } catch (_) {throw new Error('O endereço não parece ser uma URL válida.');}
+  const local = /^(localhost|127\.0\.0\.1)$/.test(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local))
+    throw new Error('Use HTTPS para funcionar no iPhone e no GitHub Pages.');
+  if (location.protocol === 'https:' && url.protocol === 'http:')
+    throw new Error('Um site HTTPS não pode acessar um servidor HTTP. Configure HTTPS.');
+  return url.origin + (url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, ''));
+}
+async function connectKokoro() {
+  let endpoint;
+  try {endpoint = normalizeKokoroURL($('#kokoro-url').value);}
+  catch(error) {reportAudio(error.message, 'error');toast(error.message);return;}
+  $('#kokoro-connection').textContent = 'verificando…';
+  reportAudio('Verificando conexão com o servidor Kokoro…', 'pending');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(endpoint + '/health', {signal:controller.signal, cache:'no-store'});
+    if (!response.ok) throw new Error('Servidor respondeu HTTP ' + response.status);
+    const data = await response.json();
+    if (data.engine !== 'kokoro' || data.status !== 'ok') throw new Error('Este endereço não é um servidor Kokoro compatível com o Leitor.');
+    state.kokoroEndpoint = endpoint;
+    localStorage.setItem('leitor-kokoro-endpoint', endpoint);
+    $('#kokoro-connection').textContent = 'conectado';
+    reportAudio('Servidor Kokoro conectado. Escolha Dora, Alex ou Santa e toque em Testar voz.', 'success');
+    toast('Kokoro conectado! Agora teste a voz.');
+  } catch (error) {
+    $('#kokoro-connection').textContent = 'falha na conexão';
+    const message = error.name === 'AbortError' ? 'O servidor não respondeu dentro do limite.' : error.message;
+    reportAudio('Não conectou: ' + message + '. Confira o HTTPS, o CORS e se o servidor está ligado.', 'error');
+    toast('Não foi possível conectar ao Kokoro.');
+  } finally {clearTimeout(timer);}
+}
+function stopKokoro() {
+  if (state.kokoroController) {
+    state.kokoroController.abort();
+    state.kokoroController = null;
+  }
+  const player = state.kokoroAudio;
+  if (player) {
+    player.pause();
+    player.onended = null;
+    player.onerror = null;
+    player.onplaying = null;
+    player.removeAttribute('src');
+    player.load();
+    player.classList.add('hidden');
+  }
+  if (state.kokoroObjectUrl) {
+    URL.revokeObjectURL(state.kokoroObjectUrl);
+    state.kokoroObjectUrl = null;
+  }
+  state.kokoroGenerating = false;
+}
+async function playKokoroSegment(generation) {
+  if (generation !== state.speechGeneration || !state.speaking || !state.active && !state.testingVoice) return;
+  if (state.speechIndex >= state.speechSegments.length) {
+    state.speaking = false;
+    state.kokoroGenerating = false;
+    $('#save-status').textContent = '✓ Salvo';
+    reportAudio('Trecho narrado até o fim. Avance a página para continuar.', 'success');
+    updateSpeechButtons();
+    return;
+  }
+  const segment = state.speechSegments[state.speechIndex].slice(0,400);
+  const controller = new AbortController();
+  state.kokoroController = controller;
+  state.kokoroGenerating = true;
+  showSpokenSegment();
+  $('#save-status').textContent = 'Gerando voz neural…';
+  reportAudio('Kokoro preparando ' + (state.speechIndex + 1) + ' de ' + state.speechSegments.length + ' trechos. A primeira geração pode demorar.', 'pending');
+  updateSpeechButtons();
+  try {
+    const response = await fetch(state.kokoroEndpoint + '/api/tts', {
+      method:'POST',
+      mode:'cors',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        text:segment,
+        voice:$('#voice-select').value,
+        speed:Number($('#speed-range').value)
+      }),
+      signal:controller.signal
+    });
+    if (!response.ok) {
+      let message = 'HTTP ' + response.status;
+      try {const detail = await response.json(); message = detail.detail || message;} catch (_) {}
+      throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
+    }
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('O servidor retornou áudio vazio.');
+    if (generation !== state.speechGeneration || controller.signal.aborted) return;
+    state.kokoroGenerating = false;
+    if (state.kokoroObjectUrl) URL.revokeObjectURL(state.kokoroObjectUrl);
+    state.kokoroObjectUrl = URL.createObjectURL(blob);
+    const player = state.kokoroAudio;
+    player.src = state.kokoroObjectUrl;
+    player.playbackRate = 1;
+    player.classList.remove('hidden');
+    player.onplaying = () => {
+      if (generation !== state.speechGeneration) return;
+      $('#save-status').textContent = '♫ Kokoro';
+      reportAudio('Narrando com Kokoro · ' + $('#voice-select').selectedOptions[0].textContent, 'success');
+    };
+    player.onended = () => {
+      if (generation !== state.speechGeneration) return;
+      state.speechIndex++;
+      playKokoroSegment(generation);
+    };
+    player.onerror = () => {
+      if (generation !== state.speechGeneration) return;
+      reportAudio('Erro de reprodução do WAV. Toque novamente no controle de áudio.', 'error');
+    };
+    // Safari pode bloquear autoplay depois de uma resposta HTTP assíncrona;
+    // manter controles HTML nativos para o usuário iniciar manualmente.
+    try {
+      await player.play();
+    } catch (error) {
+      if (generation !== state.speechGeneration) return;
+      reportAudio('Áudio gerado com sucesso. Toque no botão ▶ do player abaixo para ouvir no iPhone.', 'pending');
+      toast('Áudio Kokoro pronto. Toque em ▶ no player de áudio.');
+    }
+  } catch (error) {
+    if (controller.signal.aborted || generation !== state.speechGeneration) return;
+    state.speaking = false;
+    state.kokoroGenerating = false;
+    $('#save-status').textContent = 'Erro Kokoro';
+    updateSpeechButtons();
+    reportAudio('Falha no Kokoro: ' + (error instanceof TypeError ? 'rede, CORS ou servidor desconectado' : error.message), 'error');
+    toast('O motor Kokoro não respondeu. Confira a configuração do servidor.');
+  } finally {
+    if (state.kokoroController === controller) state.kokoroController = null;
+  }
+}
+function startKokoro(segments, testing = false) {
+  if (!state.kokoroEndpoint) {
+    $('#kokoro-config').open = true;
+    reportAudio('O Kokoro precisa de um servidor HTTPS. Configure o endereço abaixo antes de ouvir.', 'error');
+    toast('Configure o servidor Kokoro para usar as vozes neurais.');
+    return;
+  }
+  stopSpeech();
+  state.speechSegments = segments;
+  state.speechIndex = 0;
+  state.speaking = true;
+  state.paused = false;
+  state.testingVoice = testing;
+  try {
+    if (navigator.audioSession && 'type' in navigator.audioSession) navigator.audioSession.type = 'playback';
+  } catch (_) {}
+  updateSpeechButtons();
+  playKokoroSegment(state.speechGeneration);
+}
+
 function reportAudio(message, stateName = '') {
   const el = $('#audio-diagnostic');
   if (el) {

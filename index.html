@@ -7,10 +7,10 @@
   <meta name="description" content="Leitor de PDF e EPUB com biblioteca pessoal, leitura em voz alta e progresso automático.">
   <title>Leitor — Sua biblioteca, no seu ritmo</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg">
-  <link rel="stylesheet" href="./styles.css?v=4">
+  <link rel="stylesheet" href="./styles.css?v=5">
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/epubjs@0.3.93/dist/epub.min.js"></script>
-  <script type="module" src="./app.js?v=4"></script>
+  <script type="module" src="./app.js?v=5"></script>
 </head>
 <body>
   <div class="app" id="app">
@@ -78,6 +78,7 @@
               <input id="kokoro-url" type="url" inputmode="url" autocomplete="url" placeholder="https://seu-servidor.exemplo.com" aria-label="Endereço HTTPS do servidor Kokoro">
               <button class="btn secondary" type="button" id="kokoro-connect">Conectar</button>
             </div>
+            <div class="kokoro-setup"><input id="kokoro-key" type="password" autocomplete="off" placeholder="Chave privada (se configurada)" aria-label="Chave privada opcional do servidor Kokoro"></div>
             <small>O projeto do servidor e as instruções de instalação estão no <a href="https://github.com/pscfredteixeira/Leitor/tree/main/backend" target="_blank" rel="noopener noreferrer">GitHub</a>.</small>
           </details>
         </div>

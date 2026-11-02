@@ -1,5 +1,5 @@
-/* Leitor v0.1 — biblioteca local, PDF/EPUB e leitura em voz alta.
-   Documentos não são enviados para servidores. Dependências são carregadas via CDN. */
+/* Leitor v0.2 — biblioteca local PDF/EPUB e narração neural Kokoro opcional.
+   Arquivos completos ficam no dispositivo. Com Kokoro, apenas trechos de texto são enviados ao servidor configurado. */
 'use strict';
 
 const $ = (selector) => document.querySelector(selector);
